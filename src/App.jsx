@@ -1,22 +1,50 @@
-import React, { useEffect } from "react";
+import React, { useEffect, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 import AdminLayout from "./layouts/AdminLayout";
-import Home from "./pages/Home";
-import Analyze from "./pages/Analyze";
-import Processing from "./pages/Processing";
-import Result from "./pages/Result";
-import History from "./pages/History";
-import Settings from "./pages/Settings";
-import AdminDashboard from "./pages/admin/Dashboard";
-import SystemLogs from "./pages/admin/SystemLogs";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import NotFound from "./pages/NotFound";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { useAuth } from "./context/AuthContext";
+
+// ─── Route-level Code Splitting (Lazy Loading) ──────────────────────────────
+// Memecah bundle utama menjadi chunk terpisah agar muatan awal aplikasi ringan
+const Home = lazy(() => import("./pages/Home"));
+const Analyze = lazy(() => import("./pages/Analyze"));
+const Processing = lazy(() => import("./pages/Processing"));
+const Result = lazy(() => import("./pages/Result"));
+const History = lazy(() => import("./pages/History"));
+const Settings = lazy(() => import("./pages/Settings"));
+const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const SystemLogs = lazy(() => import("./pages/admin/SystemLogs"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+/**
+ * Komponen PageLoader - Indikator pemuatan halaman saat chunk diunduh (Suspense fallback).
+ * Didesain minimalis dan halus untuk mencegah efek kedip (flicker) antarmuka.
+ */
+function PageLoader() {
+  return (
+    <div
+      role="status"
+      aria-label="Memuat halaman..."
+      className="min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center p-6 bg-[#05060f]"
+    >
+      <div className="relative flex items-center justify-center">
+        {/* Lingkaran luar berdenyut */}
+        <div className="w-12 h-12 rounded-full border border-cyan-400/20 animate-ping absolute" />
+        {/* Spinner berputar bergradien */}
+        <div className="w-10 h-10 rounded-full border-2 border-transparent border-t-cyan-400 border-r-violet-500 animate-spin" />
+      </div>
+      <span className="mt-4 text-xs font-medium text-slate-400 tracking-wider">
+        Memuat...
+      </span>
+    </div>
+  );
+}
 
 // Menggulir otomatis ke atas setiap kali berpindah rute halaman (kecuali navigasi hash di beranda)
 function ScrollToTop() {
@@ -67,120 +95,119 @@ export default function App() {
       {/* Navbar publik disembunyikan di area admin karena AdminLayout punya top-bar sendiri */}
       {!isAdminArea && <Navbar />}
 
-      <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname}>
-          {/* ── Rute Publik ───────────────────────────────────── */}
-          <Route
-            path="/"
-            element={
-              <PageTransition>
-                <Home />
-              </PageTransition>
-            }
-          />
-          <Route
-            path="/masuk"
-            element={
-              <GuestOnlyRoute>
-                <PageTransition>
-                  <Login />
-                </PageTransition>
-              </GuestOnlyRoute>
-            }
-          />
-          <Route
-            path="/daftar"
-            element={
-              <GuestOnlyRoute>
-                <PageTransition>
-                  <Register />
-                </PageTransition>
-              </GuestOnlyRoute>
-            }
-          />
+      {/* Seluruh rute dilindungi oleh ErrorBoundary untuk mencegah White Screen of Death (NFR-03) */}
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <AnimatePresence mode="wait">
+            <Routes location={location} key={location.pathname}>
+              {/* ── Rute Publik ───────────────────────────────────── */}
+              <Route
+                path="/"
+                element={
+                  <PageTransition>
+                    <Home />
+                  </PageTransition>
+                }
+              />
+              <Route
+                path="/masuk"
+                element={
+                  <GuestOnlyRoute>
+                    <PageTransition>
+                      <Login />
+                    </PageTransition>
+                  </GuestOnlyRoute>
+                }
+              />
+              <Route
+                path="/daftar"
+                element={
+                  <GuestOnlyRoute>
+                    <PageTransition>
+                      <Register />
+                    </PageTransition>
+                  </GuestOnlyRoute>
+                }
+              />
 
-          {/* ── Rute Terproteksi (semua pengguna login) ────────── */}
-          <Route
-            path="/analisis"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <Analyze />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
-          {/* Route Phase 4: halaman pemrosesan */}
-          <Route
-            path="/proses"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <Processing />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
-          {/* Route Phase 5: halaman hasil analisis */}
-          <Route
-            path="/hasil"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <Result />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
-          {/* Route Phase 6: halaman riwayat analisis */}
-          <Route
-            path="/riwayat"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <History />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
-          {/* Route Phase 7: halaman pengaturan akun & preferensi privasi */}
-          <Route
-            path="/pengaturan"
-            element={
-              <ProtectedRoute>
-                <PageTransition>
-                  <Settings />
-                </PageTransition>
-              </ProtectedRoute>
-            }
-          />
+              {/* ── Rute Terproteksi (semua pengguna login) ────────── */}
+              <Route
+                path="/analisis"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <Analyze />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/proses"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <Processing />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/hasil"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <Result />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/riwayat"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <History />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/pengaturan"
+                element={
+                  <ProtectedRoute>
+                    <PageTransition>
+                      <Settings />
+                    </PageTransition>
+                  </ProtectedRoute>
+                }
+              />
 
-          {/* ── Rute Admin (Phase 8) — RBAC: hanya role 'admin' ─ */}
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <AdminLayout />
-              </AdminRoute>
-            }
-          >
-            {/* /admin → Dashboard Overview */}
-            <Route index element={<AdminDashboard />} />
-            {/* /admin/logs → System Logs */}
-            <Route path="logs" element={<SystemLogs />} />
-          </Route>
+              {/* ── Rute Admin (Phase 8) — RBAC: hanya role 'admin' ─ */}
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <AdminLayout />
+                  </AdminRoute>
+                }
+              >
+                <Route index element={<AdminDashboard />} />
+                <Route path="logs" element={<SystemLogs />} />
+              </Route>
 
-          {/* ── Fallback 404 ───────────────────────────────────── */}
-          <Route
-            path="*"
-            element={
-              <PageTransition>
-                <NotFound />
-              </PageTransition>
-            }
-          />
-        </Routes>
-      </AnimatePresence>
+              {/* ── Fallback 404 ───────────────────────────────────── */}
+              <Route
+                path="*"
+                element={
+                  <PageTransition>
+                    <NotFound />
+                  </PageTransition>
+                }
+              />
+            </Routes>
+          </AnimatePresence>
+        </Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

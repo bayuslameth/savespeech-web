@@ -69,7 +69,7 @@ export default function Register() {
         touched.email && !email.trim()
           ? "Alamat email wajib diisi"
           : touched.email && !EMAIL_REGEX.test(email.trim())
-          ? "Format alamat email tidak valid (contoh: taken@example.com untuk uji error)"
+          ? "Format alamat email tidak valid"
           : "",
       password:
         touched.password && !isPasswordStrong
@@ -110,6 +110,7 @@ export default function Register() {
         navigate("/analisis", { replace: true });
       }, 900);
     } catch (err) {
+      // Tangkap detail pesan error dari backend FastAPI (mis. "Email sudah digunakan")
       setServiceError(err.message || "Terjadi kesalahan saat pendaftaran");
     }
   };

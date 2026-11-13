@@ -63,9 +63,9 @@ export default function History() {
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!ignore) {
-          setError("Gagal memuat riwayat analisis. Silakan periksa koneksi Anda.");
+          setError(err.message || "Gagal memuat riwayat analisis. Silakan periksa koneksi Anda.");
           setLoading(false);
         }
       });
@@ -82,8 +82,8 @@ export default function History() {
     try {
       const data = await getHistory(token);
       setHistoryItems(data || []);
-    } catch {
-      setError("Gagal memuat riwayat analisis. Silakan periksa koneksi Anda.");
+    } catch (err) {
+      setError(err.message || "Gagal memuat riwayat analisis. Silakan periksa koneksi Anda.");
     } finally {
       setLoading(false);
     }

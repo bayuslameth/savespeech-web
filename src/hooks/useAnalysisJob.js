@@ -6,38 +6,36 @@ import { startAnalysis, getJobStatus, getResult, cancelAnalysis } from "../servi
 import { addHistoryItem } from "../services/historyApi";
 
 /**
- * Hook yang mengelola lifecycle satu job analisis:
- * start → polling setiap 1000 ms → done/failed → navigasi.
+ * Hook yang mengelola lifecycle satu job analisis terhadap backend nyata:
+ * start → polling status berkala (1000-2000 ms) → done/failed → navigasi.
  *
  * Mengekspos: { status, progress, elapsedSec, error, retry, cancel }
  */
 export function useAnalysisJob() {
   const navigate = useNavigate();
-  const { preferences } = useAuth();
+  const { token, preferences } = useAuth();
   const { file, setResult } = useAnalysis();
 
-  const [status, setStatus] = useState("uploading");   // status job saat ini
+  const [status, setStatus] = useState("uploading");
   const [progress, setProgress] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [error, setError] = useState(null);
 
-  // Ref guard: mencegah double-start di React StrictMode (effect dipanggil 2×)
+  // Ref guard: mencegah double-start di React StrictMode
   const startedRef = useRef(false);
   const jobIdRef = useRef(null);
-  const abortRef = useRef(null);           // AbortController aktif
-  const pollTimerRef = useRef(null);       // ID setTimeout polling saat ini
-  const elapsedTimerRef = useRef(null);    // ID setInterval untuk waktu berjalan
+  const abortRef = useRef(null);
+  const pollTimerRef = useRef(null);
+  const elapsedTimerRef = useRef(null);
   const startTimeRef = useRef(null);
-  const pollRef = useRef(null);            // Ref untuk fungsi polling rekursif
+  const pollRef = useRef(null);
 
   // ─── Cleanup total ────────────────────────────────────────────────────────
   const cleanup = useCallback(() => {
-    // Batalkan semua pending async
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
-    // Hentikan polling dan timer elapsed
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
@@ -48,30 +46,30 @@ export function useAnalysisJob() {
     }
   }, []);
 
-  // ─── Fungsi polling rekursif ──────────────────────────────────────────────
+  // ─── Fungsi polling rekursif membaca status dari backend riil ─────────────
   const poll = useCallback(
     async (jobId) => {
-      // Buat AbortController baru untuk request ini
       const ac = new AbortController();
       abortRef.current = ac;
 
       try {
-        const job = await getJobStatus(jobId, ac.signal);
+        const job = await getJobStatus(jobId, token, ac.signal);
 
-        // Jika sudah di-abort (unmount / cancel), tidak proses lebih lanjut
+        // Jika request telah dibatalkan, hentikan pemrosesan
         if (ac.signal.aborted) return;
 
         setStatus(job.status);
-        setProgress(job.progress);
+        setProgress(job.progress ?? 0);
 
         if (job.status === "done") {
-          // Ambil hasil dan simpan ke context
           cleanup();
-          const resultData = await getResult(jobId, new AbortController().signal);
-          // Sesuai PRD FR-20: catat ke riwayat hanya jika pengguna opt-in
+          const resultData = await getResult(jobId, token, new AbortController().signal);
+
+          // Sesuai PRD FR-20: catat riwayat hanya jika pengguna opt-in
           if (preferences?.saveHistory) {
             addHistoryItem(resultData, file?.name);
           }
+
           setResult(resultData);
           navigate("/hasil", { replace: true });
           return;
@@ -79,29 +77,28 @@ export function useAnalysisJob() {
 
         if (job.status === "failed") {
           cleanup();
-          setError(job.errorMessage || "Proses analisis gagal. Silakan coba lagi.");
+          setError(job.errorMessage || "Proses analisis gagal diproses oleh server.");
           return;
         }
 
-        // Jadwalkan polling berikutnya 1000 ms kemudian lewat ref rekursif
+        // Jadwalkan polling berikutnya dalam 1500 ms
         pollTimerRef.current = setTimeout(() => {
           pollRef.current?.(jobId);
-        }, 1000);
+        }, 1500);
       } catch (err) {
-        if (err.name === "AbortError") return; // Dibatalkan — abaikan
+        if (err.name === "AbortError") return;
         cleanup();
-        setError("Terjadi kesalahan saat memproses. Silakan coba lagi.");
+        setError(err.message || "Terjadi kesalahan saat memproses. Silakan coba lagi.");
       }
     },
-    [cleanup, file, navigate, preferences, setResult]
+    [cleanup, file, navigate, preferences, setResult, token]
   );
 
-  // Selalu perbarui pollRef ke versi terbaru fungsi poll
   useEffect(() => {
     pollRef.current = poll;
   }, [poll]);
 
-  // ─── Start job ────────────────────────────────────────────────────────────
+  // ─── Start job: POST berkas multipart ke backend ──────────────────────────
   const startJob = useCallback(async () => {
     if (!file) return;
     cleanup();
@@ -111,7 +108,6 @@ export function useAnalysisJob() {
     setError(null);
     startTimeRef.current = Date.now();
 
-    // Timer elapsed (detik berjalan)
     elapsedTimerRef.current = setInterval(() => {
       setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 500);
@@ -119,40 +115,34 @@ export function useAnalysisJob() {
     try {
       const ac = new AbortController();
       abortRef.current = ac;
-      const { jobId } = await startAnalysis(file, ac.signal);
+      const { jobId } = await startAnalysis(file, token, ac.signal);
       if (ac.signal.aborted) return;
       jobIdRef.current = jobId;
       poll(jobId);
     } catch (err) {
       if (err.name === "AbortError") return;
       cleanup();
-      setError("Gagal memulai analisis. Silakan coba lagi.");
+      setError(err.message || "Gagal memulai analisis audio. Pastikan server backend aktif.");
     }
-  }, [file, cleanup, poll]);
+  }, [file, cleanup, poll, token]);
 
   // ─── Effect: start saat mount ─────────────────────────────────────────────
   useEffect(() => {
-    // Ref guard mencegah React StrictMode double-invoke effect memulai 2 job
     if (startedRef.current) return;
     startedRef.current = true;
 
     startJob();
 
     return () => {
-      // Cleanup saat komponen unmount (navigasi pergi)
       cleanup();
       if (jobIdRef.current) {
-        cancelAnalysis(jobIdRef.current);
+        cancelAnalysis(jobIdRef.current, token);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // hanya sekali saat mount
+  }, []);
 
-  // ─── Fungsi publik ────────────────────────────────────────────────────────
-
-  /**
-   * Coba lagi setelah failed: reset startedRef, panggil ulang startJob.
-   */
+  // ─── Fungsi kontrol publik ────────────────────────────────────────────────
   const retry = useCallback(() => {
     startedRef.current = true;
     jobIdRef.current = null;
@@ -160,18 +150,14 @@ export function useAnalysisJob() {
     startJob();
   }, [startJob]);
 
-  /**
-   * Batalkan job: hentikan polling, panggil cancelAnalysis, kembali ke /analisis.
-   * File tetap tersimpan di context.
-   */
   const cancel = useCallback(() => {
     cleanup();
     if (jobIdRef.current) {
-      cancelAnalysis(jobIdRef.current);
+      cancelAnalysis(jobIdRef.current, token);
       jobIdRef.current = null;
     }
     navigate("/analisis", { replace: true });
-  }, [cleanup, navigate]);
+  }, [cleanup, navigate, token]);
 
   return { status, progress, elapsedSec, error, retry, cancel };
 }

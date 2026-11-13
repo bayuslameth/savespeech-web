@@ -197,7 +197,7 @@ function ProcessingContent({ file, meta, navigate, showCancelDialog, setShowCanc
               Memproses Percakapan
             </h1>
             <p className="text-sm text-slate-400">
-              Mohon tunggu, proses berlangsung selama ±11 detik.
+              Mohon tunggu, AI sedang memproses analisis suara dan deteksi penipuan.
             </p>
           </div>
 

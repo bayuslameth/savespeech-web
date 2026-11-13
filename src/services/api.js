@@ -1,89 +1,88 @@
-// ============================================================================
-// GANTI DENGAN FETCH KE BACKEND DI PHASE 9
-// Endpoint masa depan sesuai PRD:
-// - POST /api/auth/login
-// - POST /api/auth/register
-// ============================================================================
+/**
+ * src/services/api.js
+ * ───────────────────
+ * Layanan autentikasi terhubung ke endpoint FastAPI nyata (Phase 9):
+ * - POST /api/auth/login
+ * - POST /api/auth/register
+ * - POST /api/auth/logout (opsional/best effort)
+ */
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { apiFetch } from "../utils/fetcher";
 
-const delay = (ms = 800) => new Promise((resolve) => setTimeout(resolve, ms));
-
+/**
+ * Melakukan login pengguna ke sistem.
+ *
+ * @param {object} params
+ * @param {string} params.email
+ * @param {string} params.password
+ * @returns {Promise<{ user: object, token: string }>}
+ */
 export async function login({ email, password }) {
-  await delay(800);
-
   const cleanEmail = String(email || "").trim().toLowerCase();
   const cleanPassword = String(password || "");
 
-  // Validasi mock: email harus valid dan kata sandi minimal 8 karakter
-  if (!EMAIL_REGEX.test(cleanEmail) || cleanPassword.length < 8) {
-    // Pesan generik agar tidak membocorkan apakah email terdaftar (mencegah user enumeration)
-    throw new Error("Email atau kata sandi salah");
-  }
+  const data = await apiFetch("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: cleanEmail, password: cleanPassword }),
+  });
 
-  // Nama tampilan diambil dari bagian lokal email untuk keperluan mock
-  const rawName = cleanEmail.split("@")[0].replace(/[._-]+/g, " ");
-  const formattedName = rawName.replace(/\b\w/g, (char) => char.toUpperCase());
-
-  // Phase 8 RBAC: Tentukan role berdasarkan email
-  // Jika email mengandung "admin" atau domain savespeech.com, berikan role admin
-  const isAdmin =
-    cleanEmail === "admin@savespeech.com" ||
-    cleanEmail.includes("admin");
-
-  return {
-    user: {
-      id: isAdmin ? "usr-admin-01" : "usr-mock-01",
-      nama: isAdmin ? "Administrator" : (formattedName || "Pengguna Savespeech"),
-      email: cleanEmail,
-      role: isAdmin ? "admin" : "user", // RBAC role field
-    },
-    token: isAdmin
-      ? "mock-jwt-admin-token-savespeech-phase8"
-      : "mock-jwt-token-savespeech-phase2",
+  // Normalisasi respon backend FastAPI (mendukung token atau access_token)
+  const token = data.token || data.access_token;
+  const user = data.user || {
+    id: data.id || data.user_id || "usr-01",
+    nama: data.nama || data.name || cleanEmail.split("@")[0],
+    email: data.email || cleanEmail,
+    role: data.role || "user",
   };
+
+  return { user, token };
 }
 
+/**
+ * Mendaftarkan akun baru ke sistem.
+ *
+ * @param {object} params
+ * @param {string} params.nama
+ * @param {string} params.email
+ * @param {string} params.password
+ * @returns {Promise<{ user: object, token: string }>}
+ */
 export async function register({ nama, email, password }) {
-  await delay(800);
-
   const cleanNama = String(nama || "").trim();
   const cleanEmail = String(email || "").trim().toLowerCase();
   const cleanPassword = String(password || "");
 
-  if (!cleanNama) {
-    throw new Error("Nama lengkap wajib diisi");
-  }
-
-  if (!EMAIL_REGEX.test(cleanEmail)) {
-    throw new Error("Format alamat email tidak valid");
-  }
-
-  // Simulasi kasus email sudah terdaftar untuk pengujian UI error
-  if (cleanEmail === "taken@example.com") {
-    throw new Error("Email sudah terdaftar");
-  }
-
-  const hasUpper = /[A-Z]/.test(cleanPassword);
-  const hasLower = /[a-z]/.test(cleanPassword);
-  const hasNumber = /[0-9]/.test(cleanPassword);
-
-  if (cleanPassword.length < 8 || !hasUpper || !hasLower || !hasNumber) {
-    throw new Error("Kata sandi belum memenuhi syarat keamanan");
-  }
-
-  return {
-    user: {
-      id: `usr-${Date.now()}`,
+  const data = await apiFetch("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({
       nama: cleanNama,
       email: cleanEmail,
-      role: "user", // Pengguna baru selalu mendapat role user
-    },
-    token: `mock-jwt-token-${Date.now()}`,
+      password: cleanPassword,
+    }),
+  });
+
+  const token = data.token || data.access_token || null;
+  const user = data.user || {
+    id: data.id || data.user_id || `usr-${Date.now()}`,
+    nama: data.nama || data.name || cleanNama,
+    email: data.email || cleanEmail,
+    role: data.role || "user",
   };
+
+  return { user, token };
 }
 
-export async function logout() {
-  await delay(250);
+/**
+ * Menghapus sesi otentikasi di sisi backend jika didukung.
+ *
+ * @param {string} [token]
+ * @returns {Promise<{ success: boolean }>}
+ */
+export async function logout(token = null) {
+  try {
+    await apiFetch("/auth/logout", { method: "POST" }, token);
+  } catch {
+    // Abaikan jika endpoint logout tidak diimplementasikan di backend
+  }
   return { success: true };
 }

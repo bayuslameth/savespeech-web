@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState, useCallback, useContext } from "react";
+import { createContext, useState, useCallback, useContext, useEffect } from "react";
 import * as authApi from "../services/api";
 
 export const AuthContext = createContext(null);
@@ -12,6 +12,8 @@ export function useAuth() {
   return context;
 }
 
+const TOKEN_STORAGE_KEY = "savespeech_token";
+const USER_STORAGE_KEY = "savespeech_user";
 const PREFERENCES_STORAGE_KEY = "savespeech_user_preferences";
 
 /**
@@ -19,8 +21,25 @@ const PREFERENCES_STORAGE_KEY = "savespeech_user_preferences";
  * mendaftarkan fungsi cleanup yang dipanggil saat logout.
  */
 export function AuthProvider({ children, onLogoutCallback }) {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
+  // Inisialisasi token dari sessionStorage (mempertahankan sesi saat F5, hilang saat tab ditutup)
+  const [token, setToken] = useState(() => {
+    try {
+      return sessionStorage.getItem(TOKEN_STORAGE_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Inisialisasi user dari sessionStorage
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = sessionStorage.getItem(USER_STORAGE_KEY);
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [loading, setLoading] = useState(false);
 
   // Preferensi privasi pengguna (FR-20: default saveHistory adalah false)
@@ -36,12 +55,63 @@ export function AuthProvider({ children, onLogoutCallback }) {
     return { saveHistory: false };
   });
 
+  const logout = useCallback(async () => {
+    setLoading(true);
+    try {
+      await authApi.logout(token);
+    } catch {
+      // Abaikan jika server logout gagal
+    } finally {
+      // Hapus token dan user dari sessionStorage secara tuntas
+      try {
+        sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+        sessionStorage.removeItem(USER_STORAGE_KEY);
+      } catch {
+        // Abaikan
+      }
+      setUser(null);
+      setToken(null);
+      setLoading(false);
+
+      // Panggil cleanup eksternal (mis. clearFile dari AnalysisContext) saat logout
+      if (typeof onLogoutCallback === "function") {
+        onLogoutCallback();
+      }
+    }
+  }, [token, onLogoutCallback]);
+
+  // Interseptor efek global: Jika ada request apiFetch yang menghasilkan HTTP 401 Unauthorized,
+  // jalankan logout otomatis.
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logout();
+    };
+
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    };
+  }, [logout]);
+
   const login = useCallback(async ({ email, password }) => {
     setLoading(true);
     try {
       const response = await authApi.login({ email, password });
       setUser(response.user);
       setToken(response.token);
+
+      // Simpan sesi ke sessionStorage
+      try {
+        if (response.token) {
+          sessionStorage.setItem(TOKEN_STORAGE_KEY, response.token);
+        }
+        if (response.user) {
+          sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.user));
+        }
+      } catch {
+        // Abaikan
+      }
+
       return response;
     } finally {
       setLoading(false);
@@ -54,6 +124,19 @@ export function AuthProvider({ children, onLogoutCallback }) {
       const response = await authApi.register({ nama, email, password });
       setUser(response.user);
       setToken(response.token);
+
+      // Simpan sesi ke sessionStorage jika registrasi mengembalikan token
+      try {
+        if (response.token) {
+          sessionStorage.setItem(TOKEN_STORAGE_KEY, response.token);
+        }
+        if (response.user) {
+          sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.user));
+        }
+      } catch {
+        // Abaikan
+      }
+
       return response;
     } finally {
       setLoading(false);
@@ -64,13 +147,20 @@ export function AuthProvider({ children, onLogoutCallback }) {
   const updateProfile = useCallback(async ({ nama }) => {
     setLoading(true);
     try {
-      // Simulasi delay request
-      await new Promise((resolve) => setTimeout(resolve, 400));
       const cleanNama = String(nama || "").trim();
       if (!cleanNama) {
         throw new Error("Nama lengkap tidak boleh kosong");
       }
-      setUser((prev) => (prev ? { ...prev, nama: cleanNama } : null));
+      setUser((prev) => {
+        if (!prev) return null;
+        const updated = { ...prev, nama: cleanNama };
+        try {
+          sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updated));
+        } catch {
+          // Abaikan
+        }
+        return updated;
+      });
       return { success: true, nama: cleanNama };
     } finally {
       setLoading(false);
@@ -81,8 +171,6 @@ export function AuthProvider({ children, onLogoutCallback }) {
   const updatePassword = useCallback(async ({ currentPassword, newPassword }) => {
     setLoading(true);
     try {
-      // Simulasi delay request
-      await new Promise((resolve) => setTimeout(resolve, 600));
       if (!currentPassword) {
         throw new Error("Kata sandi saat ini wajib diisi");
       }
@@ -110,21 +198,6 @@ export function AuthProvider({ children, onLogoutCallback }) {
       return updated;
     });
   }, []);
-
-  const logout = useCallback(async () => {
-    setLoading(true);
-    try {
-      await authApi.logout();
-    } finally {
-      setUser(null);
-      setToken(null);
-      setLoading(false);
-      // Panggil cleanup eksternal (mis. clearFile dari AnalysisContext) saat logout
-      if (typeof onLogoutCallback === "function") {
-        onLogoutCallback();
-      }
-    }
-  }, [onLogoutCallback]);
 
   const value = {
     user,

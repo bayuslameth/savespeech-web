@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useAuth } from "../../context/useAuth";
 import { getAggregateStats } from "../../services/adminApi";
 
 // ─── Komponen Bar Chart Horizontal CSS Murni ────────────────────────────────
@@ -89,29 +90,30 @@ function DashboardSkeleton() {
  * menggunakan bar chart CSS murni (tanpa library eksternal).
  */
 export default function AdminDashboard() {
+  const { token } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let ignore = false;
-    getAggregateStats()
+    getAggregateStats(token)
       .then((data) => {
         if (!ignore) {
           setStats(data);
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!ignore) {
-          setError("Gagal memuat statistik sistem. Periksa koneksi server.");
+          setError(err.message || "Gagal memuat statistik sistem. Periksa koneksi server.");
           setLoading(false);
         }
       });
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [token]);
 
   return (
     <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-8">

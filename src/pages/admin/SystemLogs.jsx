@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useAuth } from "../../context/useAuth";
 import { getSystemLogs } from "../../services/adminApi";
 
 // ─── Badge Status Log ─────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ function formatTimestamp(isoString) {
  * SEC-09: Tidak ada transkrip percakapan, nama asli, atau email lengkap dalam tabel.
  */
 export default function SystemLogs() {
+  const { token } = useAuth();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -82,23 +84,23 @@ export default function SystemLogs() {
 
   useEffect(() => {
     let ignore = false;
-    getSystemLogs()
+    getSystemLogs(token)
       .then((data) => {
         if (!ignore) {
           setLogs(data || []);
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!ignore) {
-          setError("Gagal memuat log sistem. Periksa koneksi server.");
+          setError(err.message || "Gagal memuat log sistem. Periksa koneksi server.");
           setLoading(false);
         }
       });
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [token]);
 
   // Filter sisi klien berdasarkan query pencarian & filter status
   const filteredLogs = useMemo(() => {

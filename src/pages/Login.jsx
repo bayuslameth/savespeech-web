@@ -51,9 +51,9 @@ export default function Login() {
     try {
       await login({ email, password });
       navigate(redirectPath, { replace: true });
-    } catch {
-      // Selalu tampilkan pesan generik sesuai prinsip keamanan autentikasi
-      setServiceError("Email atau kata sandi salah");
+    } catch (err) {
+      // Tangkap pesan error dari FastAPI atau kegagalan koneksi server
+      setServiceError(err.message || "Email atau kata sandi salah");
     }
   };
 
